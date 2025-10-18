@@ -19,3 +19,27 @@ format_text = true
 sample_rate = 16000
 channels = 1
 codec = "pcm_s16le"
+
+# Whisper CLI settings
+[whisper]
+# Path to the whisper model file
+model_path = "ggml-large-v3-turbo.bin"
+# Language code (e.g., "ru", "en", "auto")
+language = "auto"
+# Number of threads
+threads = 16
+# Suppress non-speech tokens
+suppress_nst = true
+# Max context
+max_context = 128
+# No prompt
+no_prompt = true
+# Best of N
+best_of = 7
+# Enable/disable whisper transcription
+enabled = true
+
+# Transcription method selection
+[transcription]
+# Method: "assemblyai" or "whisper"
+method = "whisper"
