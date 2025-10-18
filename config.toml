@@ -1,0 +1,21 @@
+# Configuration for processing video files
+[video]
+paths = [
+    "/path/to/video1.mp4",
+    "/path/to/video2.mp4"
+]
+
+# AssemblyAI settings
+[assemblyai]
+# Leave blank to rely on the ASSEMBLYAI_API_KEY environment variable
+api_key = ""
+speech_model = "universal"
+language = "en"
+punctuate = true
+format_text = true
+
+# Audio settings
+[audio]
+sample_rate = 16000
+channels = 1
+codec = "pcm_s16le"
