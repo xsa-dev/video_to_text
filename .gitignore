@@ -13,3 +13,4 @@ build/
 *.egg-info/
 *.wav
 transcripts/
+ggml-large-v3-turbo.bin

@@ -57,6 +57,67 @@ def extract_audio_from_video(video_path, output_audio_path, config):
         return False
 
 
+def transcribe_audio_whisper(audio_path, config):
+    """Transcribe an audio file using whisper-cli."""
+    whisper_config = config.get("whisper", {})
+    
+    print(f"      Whisper model: {whisper_config.get('model_path', 'ggml-large-v3-turbo.bin')}")
+    print(f"      Language: {whisper_config.get('language', 'ru')}")
+    print(f"      Threads: {whisper_config.get('threads', 16)}")
+    print(f"      Max context: {whisper_config.get('max_context', 128)}")
+    print(f"      Best of: {whisper_config.get('best_of', 7)}")
+    
+    try:
+        # Build whisper-cli command
+        cmd = [
+            "whisper-cli",
+            "-m", whisper_config.get("model_path", "ggml-large-v3-turbo.bin"),
+            audio_path,
+            "--output-txt",
+            "-l", whisper_config.get("language", "ru"),
+            "-t", str(whisper_config.get("threads", 16)),
+            "-mc", str(whisper_config.get("max_context", 128)),
+            "--best-of", str(whisper_config.get("best_of", 7))
+        ]
+        
+        # Add optional flags
+        if whisper_config.get("suppress_nst", True):
+            cmd.append("--suppress-nst")
+        if whisper_config.get("no_prompt", True):
+            cmd.append("-np")
+        
+        print(f"      Running command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+        
+        if result.returncode != 0:
+            print(f"      Whisper-cli error: {result.stderr}")
+            return None
+        
+        # The output file should be audio_path + ".txt"
+        output_txt_path = audio_path + ".txt"
+        
+        if not os.path.exists(output_txt_path):
+            print(f"      Output file not found: {output_txt_path}")
+            return None
+        
+        # Read the transcribed text
+        with open(output_txt_path, "r", encoding="utf-8") as file:
+            text_content = file.read().strip()
+        
+        print("      Whisper transcription completed successfully.")
+        print(f"      Transcript length: {len(text_content)} characters")
+        
+        # Clean up the temporary output file
+        os.remove(output_txt_path)
+        
+        return {"text": text_content, "status": "completed"}
+        
+    except Exception as exc:
+        print(f"      Error during whisper transcription: {exc}")
+        return None
+
+
 def transcribe_audio(audio_path, api_key, config):
     """Transcribe an audio file using the AssemblyAI API."""
     assemblyai_config = config.get("assemblyai", {})
@@ -107,6 +168,30 @@ def transcribe_audio(audio_path, api_key, config):
         return None
 
 
+def check_whisper_requirements(config):
+    """Check if whisper-cli and model are available."""
+    whisper_config = config.get("whisper", {})
+    model_path = whisper_config.get("model_path", "ggml-large-v3-turbo.bin")
+    
+    # Check if whisper-cli is available
+    try:
+        result = subprocess.run(["whisper-cli", "--help"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("Warning: whisper-cli not found or not working properly.")
+            return False
+    except FileNotFoundError:
+        print("Warning: whisper-cli not found in PATH.")
+        return False
+    
+    # Check if model file exists
+    if not os.path.exists(model_path):
+        print(f"Warning: Whisper model file not found: {model_path}")
+        return False
+    
+    print(f"Whisper-cli and model ({model_path}) are available.")
+    return True
+
+
 def process_video_files(video_paths, api_key, config):
     """Process each video file: extract audio, transcribe, and save text."""
     total_files = len(video_paths)
@@ -138,7 +223,12 @@ def process_video_files(video_paths, api_key, config):
         print(f"   Audio file size: {audio_size / 1024 / 1024:.2f} MB")
 
         print("   Sending audio for transcription...")
-        transcription_result = transcribe_audio(str(audio_path), api_key, config)
+        transcription_method = config.get("transcription", {}).get("method", "assemblyai")
+        
+        if transcription_method == "whisper":
+            transcription_result = transcribe_audio_whisper(str(audio_path), config)
+        else:
+            transcription_result = transcribe_audio(str(audio_path), api_key, config)
 
         if transcription_result:
             print("   Transcription received successfully.")
@@ -178,20 +268,32 @@ def main():
         print("Error: no video paths found in the configuration.")
         return
 
-    api_key_from_env = os.environ.get("ASSEMBLYAI_API_KEY")
-    api_key_from_config = config.get("assemblyai", {}).get("api_key")
-    api_key = api_key_from_env or api_key_from_config
+    transcription_method = config.get("transcription", {}).get("method", "assemblyai")
+    print(f"Using transcription method: {transcription_method}")
 
-    if not api_key:
-        print("Error: AssemblyAI API key not provided.")
-        print("Set the API key via an environment variable:")
-        print("    export ASSEMBLYAI_API_KEY='your_api_key_here'")
-        print("or add it to the [assemblyai] section in config.toml.")
-        return
+    # Check requirements based on selected method
+    if transcription_method == "whisper":
+        if not check_whisper_requirements(config):
+            print("Error: Whisper requirements not met. Please check whisper-cli and model file.")
+            return
+        api_key = None  # Not needed for whisper
+    else:
+        # AssemblyAI method
+        api_key_from_env = os.environ.get("ASSEMBLYAI_API_KEY")
+        api_key_from_config = config.get("assemblyai", {}).get("api_key")
+        api_key = api_key_from_env or api_key_from_config
 
-    source = "environment variable" if api_key_from_env else "config file"
-    print(f"Using AssemblyAI API key from {source}.")
+        if not api_key:
+            print("Error: AssemblyAI API key not provided.")
+            print("Set the API key via an environment variable:")
+            print("    export ASSEMBLYAI_API_KEY='your_api_key_here'")
+            print("or add it to the [assemblyai] section in config.toml.")
+            return
 
+        source = "environment variable" if api_key_from_env else "config file"
+        print(f"Using AssemblyAI API key from {source}.")
+
+    # Check ffmpeg requirement
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
